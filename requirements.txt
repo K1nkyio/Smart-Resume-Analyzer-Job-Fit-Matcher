@@ -1,0 +1,16 @@
+streamlit
+plotly
+pandas
+PyPDF2
+python-docx
+nltk
+spacy; python_version < "3.14"
+phonenumbers
+email-validator
+textblob
+scikit-learn
+numpy
+sentence-transformers
+requests
+pytesseract
+pdf2image
