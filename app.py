@@ -68,6 +68,12 @@ _theme_tokens = (
         "button": "#ffffff", "button_text": "#152235", "focus": "#1769aa",
     }
 )
+_sidebar_state_css = (
+    '[data-testid="stSidebar"] { display: none !important; } '
+    '[data-testid="stSidebarCollapsedControl"] { display: none !important; }'
+    if st.session_state.get("sidebar_collapsed_after_analysis")
+    else ""
+)
 st.markdown(
     f"""<style>
     :root {{
@@ -94,6 +100,7 @@ st.markdown(
     [data-testid="stMain"] > div {{ background: var(--app-bg); }}
     [data-testid="stSidebar"] {{ background: {_theme_tokens['sidebar']} !important; border-right: 1px solid var(--app-border); }}
     [data-testid="stHeader"], [data-testid="stToolbar"] {{ background: var(--app-bg) !important; }}
+    [data-testid="stDeployButton"], button[title="Deploy"], button[aria-label="Deploy"] {{ display: none !important; visibility: hidden !important; }}
     [data-testid="stAppViewContainer"] .block-container {{ color: var(--app-text); }}
     [data-testid="stMarkdownContainer"], [data-testid="stWidgetLabel"],
     [data-testid="stRadio"] label, [data-testid="stCheckbox"] label,
@@ -129,6 +136,12 @@ st.markdown(
       color: var(--app-text) !important;
     }}
     [data-baseweb="popover"], [role="listbox"] {{ background: var(--app-surface) !important; }}
+    [role="dialog"], [data-testid="stPopover"] [data-baseweb="popover"],
+    [data-testid="stTooltipContent"] {{ background: var(--app-surface) !important; color: var(--app-text) !important; border-color: var(--app-border) !important; }}
+    [data-baseweb="tag"], [data-baseweb="tag"] * {{ background-color: var(--app-raised) !important; color: var(--app-text) !important; }}
+    [data-testid="stMarkdownContainer"] table {{ border-collapse: collapse; color: var(--app-text) !important; }}
+    [data-testid="stMarkdownContainer"] th {{ background: var(--app-raised) !important; color: var(--app-text) !important; }}
+    [data-testid="stMarkdownContainer"] td {{ background: var(--app-surface) !important; color: var(--app-text) !important; border-color: var(--app-border) !important; }}
     [role="option"]:hover, [data-baseweb="menu"] li:hover {{ background: var(--app-hover) !important; }}
     input:focus, textarea:focus, [data-baseweb="select"] > div:focus-within {{
       outline: 2px solid var(--app-focus) !important; outline-offset: 1px;
@@ -172,6 +185,35 @@ st.markdown(
     .sidebar-brand {{ padding: .3rem 0 .85rem; }}
     .sidebar-brand strong {{ display: block; color: var(--app-text); font-size: 1.05rem; letter-spacing: -.02em; }}
     .sidebar-brand span {{ color: var(--app-muted); font-size: .78rem; }}
+    /* Final widget-level overrides: Streamlit nests button labels in markdown. */
+    .stApp button[data-testid="stBaseButton-secondary"],
+    .stApp [data-testid="stButton"] button[kind="secondary"],
+    .stApp [data-testid="stDownloadButton"] button {{
+      background-color: var(--app-button) !important;
+      color: var(--app-button-text) !important;
+      border-color: var(--app-border) !important;
+    }}
+    .stApp button[data-testid="stBaseButton-secondary"] *,
+    .stApp [data-testid="stButton"] button[kind="secondary"] *,
+    .stApp [data-testid="stDownloadButton"] button * {{
+      color: var(--app-button-text) !important;
+      fill: currentColor !important;
+    }}
+    .stApp button[data-testid="stBaseButton-primary"],
+    .stApp [data-testid="stButton"] button[kind="primary"] {{
+      background-color: var(--app-primary) !important;
+      color: {_theme_tokens['primary_text']} !important;
+      border-color: var(--app-primary) !important;
+    }}
+    .stApp button[data-testid="stBaseButton-primary"] *,
+    .stApp [data-testid="stButton"] button[kind="primary"] * {{
+      color: {_theme_tokens['primary_text']} !important;
+      fill: currentColor !important;
+    }}
+    .stApp [data-testid="stNumberInput"] button *,
+    .stApp [data-testid="stDateInput"] button *,
+    .stApp [data-baseweb="select"] button * {{ color: var(--app-button-text) !important; fill: currentColor !important; }}
+    {_sidebar_state_css}
     a {{ color: var(--app-primary) !important; }}
     </style>""",
     unsafe_allow_html=True,
@@ -197,6 +239,14 @@ def get_store() -> WorkflowStore:
     if "workflow_store" not in st.session_state:
         st.session_state.workflow_store = WorkflowStore("users.db")
     return st.session_state.workflow_store
+
+
+def collapse_sidebar_after_analysis() -> None:
+    st.session_state["sidebar_collapsed_after_analysis"] = True
+
+
+def restore_sidebar_after_analysis() -> None:
+    st.session_state["sidebar_collapsed_after_analysis"] = False
 
 
 def run_single_analysis(
@@ -1040,6 +1090,13 @@ def persist_result(
 
 st.title("Smart Resume Analyzer + Job Fit Matcher")
 st.caption("Understand your resume, compare opportunities, and make evidence-backed improvements.")
+if st.session_state.get("sidebar_collapsed_after_analysis"):
+    st.button(
+        "Show analysis settings",
+        key="show_analysis_settings",
+        on_click=restore_sidebar_after_analysis,
+        help="Reopen workspace, privacy, and AI settings.",
+    )
 if "analysis_mode" not in st.session_state:
     st.session_state["analysis_mode"] = "Analyze Resume + Job"
 action_cols = st.columns(3)
@@ -1198,7 +1255,13 @@ else:
         key="job_description_input",
     )
 
-if st.button("Run Analysis", type="primary", use_container_width=True):
+if st.button(
+    "Run Analysis",
+    type="primary",
+    use_container_width=True,
+    key="run_analysis_button",
+    on_click=collapse_sidebar_after_analysis,
+):
     if analysis_mode == "Compare Job Opportunities":
         completed_jobs = [(title, description) for title, description in job_comparison_inputs if description]
         if not uploaded_resume_a:
