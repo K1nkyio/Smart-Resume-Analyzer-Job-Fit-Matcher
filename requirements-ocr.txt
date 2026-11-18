@@ -1,0 +1,4 @@
+# Optional OCR support. Tesseract and Poppler executables must also be installed on the host.
+pytesseract
+pdf2image
+pillow

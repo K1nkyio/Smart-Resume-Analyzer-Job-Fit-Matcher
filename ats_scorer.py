@@ -8,6 +8,15 @@ from nltk.tokenize import sent_tokenize, word_tokenize
 
 from config import ATS_KEYWORDS
 
+ATS_COMPATIBILITY_WEIGHTS = {
+    "text_extraction_quality": 0.20,
+    "document_structure": 0.20,
+    "section_identification": 0.15,
+    "formatting_readability": 0.15,
+    "keyword_relevance": 0.20,
+    "contact_document_signals": 0.10,
+}
+
 
 def _safe_word_tokenize(text: str) -> List[str]:
     try:
@@ -27,26 +36,10 @@ class RealisticATSScorer:
     def __init__(self):
         self.action_verbs = set(ATS_KEYWORDS["action_verbs"])
         self.quantifiable_terms = ATS_KEYWORDS["quantifiable_terms"]
-        self._ensure_nltk_resources()
         try:
             self.stop_words = set(stopwords.words("english"))
         except Exception:
             self.stop_words = set()
-
-    def _ensure_nltk_resources(self):
-        required_resources = [
-            ("tokenizers/punkt", "punkt"),
-            ("tokenizers/punkt_tab", "punkt_tab"),
-            ("corpora/stopwords", "stopwords"),
-        ]
-        for resource_path, package_name in required_resources:
-            try:
-                nltk.data.find(resource_path)
-            except Exception:
-                try:
-                    nltk.download(package_name, quiet=True, force=True)
-                except Exception:
-                    pass
 
     def calculate_realistic_ats_score(
         self,
@@ -55,44 +48,48 @@ class RealisticATSScorer:
         target_role: Optional[str] = None,
         location: Optional[str] = None,
         return_details: bool = False,
+        parser_metadata: Optional[dict] = None,
     ):
-        if not resume_text or not job_description:
+        if not resume_text:
             if return_details:
                 return {
-                    "score": 0.0,
+                    "score": None,
                     "component_scores": {},
                     "matched_keywords": [],
                     "missing_keywords": [],
-                    "suggestions": ["Provide both resume text and job description."],
+                    "suggestions": ["No readable resume text was extracted; ATS text compatibility cannot be assessed."],
                     "explanations": {},
                     "before_after_examples": [],
+                    "score_status": "not assessable: no extracted resume text",
+                    "methodology": {
+                        "type": "ATS-oriented text heuristic",
+                        "weights": {},
+                        "configured_weights": ATS_COMPATIBILITY_WEIGHTS,
+                        "description": "No ATS compatibility score is produced without extracted resume text.",
+                        "limitations": "This is not a prediction of ATS acceptance.",
+                    },
                 }
-            return 0.0, ["Provide both resume text and job description."]
+            return None, ["No readable resume text was extracted."]
 
-        keyword_details = self._keyword_match_details(resume_text, job_description)
-
-        scores = {
-            "keyword_density": self._score_keyword_density(keyword_details),
-            "formatting": self._score_formatting(resume_text),
-            "contact_info": self._score_contact_info(resume_text),
-            "section_structure": self._score_section_structure(resume_text),
-            "quantifiable_achievements": self._score_quantifiable_achievements(resume_text),
-            "action_verbs": self._score_action_verbs(resume_text),
-            "length_appropriateness": self._score_length(resume_text),
-            "readability": self._score_readability(resume_text),
+        keyword_details = self._keyword_match_details(resume_text, job_description or "") if job_description else {
+            "job_keywords": [], "matched_keywords": [], "missing_keywords": [], "coverage_percent": None,
         }
-
-        final_score = (
-            scores["keyword_density"] * 0.30
-            + scores["section_structure"] * 0.20
-            + scores["formatting"] * 0.15
-            + scores["contact_info"] * 0.10
-            + scores["quantifiable_achievements"] * 0.10
-            + scores["action_verbs"] * 0.05
-            + scores["length_appropriateness"] * 0.05
-            + scores["readability"] * 0.05
-        )
-        final_score = round(min(final_score, 100.0), 2)
+        lines = [line.strip() for line in resume_text.splitlines() if line.strip()]
+        printable = sum(character.isprintable() for character in resume_text) / max(1, len(resume_text))
+        char_count = (parser_metadata or {}).get("char_count", len(resume_text))
+        scores = {
+            "text_extraction_quality": round(min(100.0, printable * 100 * (1.0 if char_count >= 120 else max(.35, char_count / 120))), 2),
+            "document_structure": self._score_formatting(resume_text),
+            "section_identification": self._score_section_structure(resume_text),
+            "formatting_readability": self._score_readability(resume_text),
+            "keyword_relevance": keyword_details["coverage_percent"],
+            "contact_document_signals": self._score_contact_info(resume_text),
+        }
+        ats_weights = ATS_COMPATIBILITY_WEIGHTS
+        available = [key for key, score in scores.items() if score is not None]
+        weight_total = sum(ats_weights[key] for key in available)
+        final_score = round(sum(float(scores[key]) * ats_weights[key] for key in available) / weight_total, 2) if weight_total else None
+        used_weights = {key: round(ats_weights[key] / weight_total, 4) for key in available} if weight_total else {}
 
         suggestions = self._generate_suggestions(scores, keyword_details)
 
@@ -101,10 +98,18 @@ class RealisticATSScorer:
 
         details = {
             "score": final_score,
-            "component_scores": {k: round(v, 2) for k, v in scores.items()},
+            "score_status": "heuristic text compatibility; not a prediction of acceptance by a specific ATS",
+            "methodology": {
+                "type": "ATS-oriented text heuristic",
+                "weights": used_weights,
+                "configured_weights": ats_weights,
+                "description": "ATS compatibility heuristic: extraction quality 20%, document structure 20%, section identification 15%, text readability 15%, job keyword relevance 20%, contact/document signals 10%. Unavailable job-keyword relevance is omitted and remaining weights are renormalized.",
+                "limitations": "This evaluates extracted text signals, not layout fidelity or a specific applicant tracking system. It is not a prediction of ATS acceptance or hiring likelihood.",
+            },
+            "component_scores": {k: round(v, 2) if v is not None else None for k, v in scores.items()},
             "matched_keywords": keyword_details["matched_keywords"],
             "missing_keywords": keyword_details["missing_keywords"],
-            "keyword_coverage_percent": round(keyword_details["coverage_percent"], 2),
+            "keyword_coverage_percent": round(keyword_details["coverage_percent"], 2) if keyword_details["coverage_percent"] is not None else None,
             "suggestions": suggestions,
             "explanations": self._component_explanations(
                 scores=scores,
@@ -171,13 +176,9 @@ class RealisticATSScorer:
         score = 100.0
         text = resume_text or ""
         if "\t" in text:
-            score -= 12
-        if re.search(r"[^\x00-\x7F]", text):
             score -= 8
-        if len(re.findall(r"\n\n", text)) < 2:
-            score -= 8
-        if re.search(r"\|", text):
-            score -= 10
+        if re.search(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", text):
+            score -= 20
         return max(20.0, score)
 
     def _score_contact_info(self, resume_text: str) -> float:
@@ -194,16 +195,22 @@ class RealisticATSScorer:
         return score
 
     def _score_section_structure(self, resume_text: str) -> float:
-        text = (resume_text or "").lower()
-        required_sections = {
-            "contact": r"(email|phone|linkedin)",
-            "summary": r"(summary|objective|profile)",
-            "experience": r"(experience|employment|work)",
-            "education": r"(education|degree|university)",
-            "skills": r"(skills|competencies|technical)",
-        }
-        found = sum(1 for _, pattern in required_sections.items() if re.search(pattern, text))
-        completeness = found / len(required_sections)
+        text = resume_text or ""
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        section_patterns = [
+            r"^(?:professional\s+)?(?:summary|objective|profile)\s*:?[ \t]*$",
+            r"^(?:work\s+)?(?:experience|employment|work\s+history)\s*:?[ \t]*$",
+            r"^(?:education|academic\s+background)\s*:?[ \t]*$",
+            r"^(?:technical\s+)?skills(?:\s+and\s+competencies)?\s*:?[ \t]*$",
+        ]
+        found = sum(
+            1
+            for pattern in section_patterns
+            if any(re.match(pattern, line, re.IGNORECASE) for line in lines)
+        )
+        if re.search(r"\b(email|phone|linkedin)\b", text, re.IGNORECASE):
+            found += 1
+        completeness = found / 5
         if completeness >= 0.8:
             return 95.0
         if completeness >= 0.6:
@@ -278,28 +285,22 @@ class RealisticATSScorer:
 
     def _generate_suggestions(self, scores: Dict[str, float], keyword_details: dict) -> List[str]:
         suggestions = []
-        if scores["keyword_density"] < 60:
-            suggestions.append(
-                "Add more exact role keywords from the job posting, especially in Experience and Skills sections."
-            )
-        if scores["contact_info"] < 80:
-            suggestions.append("Include email, phone, and LinkedIn in a clear header section.")
-        if scores["section_structure"] < 70:
-            suggestions.append("Use standard sections: Summary, Experience, Education, Skills.")
-        if scores["formatting"] < 70:
-            suggestions.append("Use ATS-safe formatting: plain text bullets, no tables, no unusual symbols.")
-        if scores["quantifiable_achievements"] < 60:
-            suggestions.append("Add measurable outcomes, e.g. percent improvement, savings, or delivery metrics.")
-        if scores["action_verbs"] < 60:
-            suggestions.append("Start bullets with strong verbs like implemented, optimized, led, improved.")
-        if scores["readability"] < 70:
-            suggestions.append("Shorten long sentences and keep bullets concise and scannable.")
+        if scores.get("text_extraction_quality", 0) < 70:
+            suggestions.append("Review the uploaded file's extracted text; missing or garbled text can reduce parser access.")
+        if scores.get("section_identification", 0) < 60:
+            suggestions.append("Use clear, conventional headings for the sections that apply to your background.")
+        if scores.get("formatting_readability", 0) < 65:
+            suggestions.append("Review extracted text for long, repeated, or difficult-to-scan lines.")
+        if scores.get("contact_document_signals", 0) < 50:
+            suggestions.append("If appropriate for your privacy and application context, include one clear professional contact route.")
+        if scores.get("keyword_relevance") is not None and scores["keyword_relevance"] < 40:
+            suggestions.append("Check whether the posting's relevant terms appear where supported by your experience; do not add keywords you cannot substantiate.")
         if not suggestions:
-            suggestions.append("ATS profile is strong. Focus on role-specific tailoring for each application.")
+            suggestions.append("No major text-structure issue was detected. Check the original document layout and application instructions manually.")
 
-        if keyword_details["missing_keywords"]:
+        if keyword_details.get("missing_keywords"):
             top_missing = ", ".join(keyword_details["missing_keywords"][:5])
-            suggestions.append(f"Priority missing keywords to integrate: {top_missing}.")
+            suggestions.append(f"Posting terms not found in extracted resume text (review for relevance): {top_missing}.")
 
         return suggestions
 
@@ -310,56 +311,28 @@ class RealisticATSScorer:
         target_role: Optional[str],
         location: Optional[str],
     ) -> Dict[str, dict]:
-        role = target_role or "Target role"
-        location_context = location or "target market"
-        explanations = {
-            "keyword_density": {
-                "score": round(scores["keyword_density"], 2),
-                "what_matched": keyword_details["matched_keywords"][:10],
-                "what_is_missing": keyword_details["missing_keywords"][:10],
-                "why_it_matters": f"Keyword relevance drives ATS ranking for {role} roles in {location_context}.",
-            },
-            "section_structure": {
-                "score": round(scores["section_structure"], 2),
-                "what_matched": ["standard section headings detected" if scores["section_structure"] >= 60 else ""],
-                "what_is_missing": ["missing one or more standard sections"] if scores["section_structure"] < 80 else [],
-                "why_it_matters": "Structured resumes are parsed more reliably by ATS parsers.",
-            },
-            "quantifiable_achievements": {
-                "score": round(scores["quantifiable_achievements"], 2),
-                "what_matched": ["numeric metrics found"] if scores["quantifiable_achievements"] >= 45 else [],
-                "what_is_missing": ["limited measurable business impact"] if scores["quantifiable_achievements"] < 60 else [],
-                "why_it_matters": "Recruiters prioritize evidence of outcomes, not only responsibilities.",
-            },
-            "formatting": {
-                "score": round(scores["formatting"], 2),
-                "what_matched": ["ATS-safe signals"] if scores["formatting"] >= 70 else [],
-                "what_is_missing": ["formatting simplification needed"] if scores["formatting"] < 70 else [],
-                "why_it_matters": "Complex layout can reduce parser accuracy and keyword detection.",
-            },
+        descriptions = {
+            "text_extraction_quality": "Text availability and basic character quality from the parser output.",
+            "document_structure": "Control-character and broad text-structure signals; visual layout is not inspected.",
+            "section_identification": "Recognition of common resume headings in extracted text.",
+            "formatting_readability": "Sentence length and list/bullet signals in the extracted text.",
+            "keyword_relevance": "Exact posting-term coverage in extracted text, capped at 20% of the total score.",
+            "contact_document_signals": "Email, phone, and professional-link signals; absence is not proof the source document omitted them.",
         }
-        return explanations
+        return {
+            key: {
+                "score": round(value, 2) if value is not None else None,
+                "what_matched": keyword_details.get("matched_keywords", [])[:10] if key == "keyword_relevance" else [],
+                "what_is_missing": keyword_details.get("missing_keywords", [])[:10] if key == "keyword_relevance" else [],
+                "why_it_matters": descriptions.get(key, "Text compatibility signal."),
+            }
+            for key, value in scores.items()
+        }
 
     def _before_after_examples(self, keyword_details: dict, target_role: Optional[str]) -> List[dict]:
-        role = target_role or "target role"
-        keyword = keyword_details["missing_keywords"][0] if keyword_details["missing_keywords"] else "relevant keyword"
-        return [
-            {
-                "focus": "Action + metric",
-                "before": "Responsible for improving system performance.",
-                "after": "Optimized API query paths and reduced p95 latency by 34% across production endpoints.",
-            },
-            {
-                "focus": "Keyword integration",
-                "before": f"Worked on projects related to {role}.",
-                "after": f"Delivered {keyword}-focused work aligned to {role} requirements with measurable outcomes.",
-            },
-            {
-                "focus": "Impact clarity",
-                "before": "Assisted the team with reporting tasks.",
-                "after": "Built automated reporting workflow that cut manual reporting time from 6 hours to 1 hour weekly.",
-            },
-        ]
+        # Avoid generic rewrites that could insert achievements or metrics the
+        # candidate did not provide. Grounded suggestions can be added here.
+        return []
 
 
 def calculate_ats_score(
@@ -379,6 +352,7 @@ def calculate_ats_score_detailed(
     job_description: str,
     target_role: Optional[str] = None,
     location: Optional[str] = None,
+    parser_metadata: Optional[dict] = None,
 ) -> dict:
     scorer = RealisticATSScorer()
     return scorer.calculate_realistic_ats_score(
@@ -387,6 +361,7 @@ def calculate_ats_score_detailed(
         target_role=target_role,
         location=location,
         return_details=True,
+        parser_metadata=parser_metadata,
     )
 
 

@@ -31,6 +31,25 @@ GENERIC_SKILL_IMPACT = {
     "Communication": "Clear communication is required for collaboration and stakeholder alignment.",
 }
 
+# Curated adjacency only: these technologies may provide transferable concepts,
+# but are never counted as direct equivalence or direct skill coverage.
+RELATED_SKILL_FAMILIES = (
+    {"SQL", "PostgreSQL", "MySQL", "SQLite", "SQL Server", "Oracle"},
+    {"AWS", "Azure", "Google Cloud"},
+    {"React", "Vue.js", "Angular", "Next.js"},
+    {"Laravel", "Express.js", "Django", "Flask", "FastAPI"},
+    {"REST API", "API Development"},
+    {"PyTorch", "TensorFlow"},
+)
+
+
+def _related_skill_index():
+    index = defaultdict(set)
+    for family in RELATED_SKILL_FAMILIES:
+        for skill in family:
+            index[skill].update(family - {skill})
+    return index
+
 
 def _safe_slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
@@ -42,6 +61,7 @@ class AccurateSkillMatcher:
         self.industry_db = INDUSTRY_SKILLS
         self.skills_catalog = self._build_skills_catalog()
         self.skill_variations = self._build_skill_variations()
+        self.related_skills = _related_skill_index()
 
     def _build_skills_catalog(self) -> Dict[str, str]:
         catalog = {}
@@ -70,7 +90,7 @@ class AccurateSkillMatcher:
 
     def _canonical_role(self, role: Optional[str]) -> str:
         if not role:
-            return "Data Analyst"
+            return "Unspecified role"
         role_slug = _safe_slug(role)
         for known_role in ROLE_PLAYBOOKS:
             if _safe_slug(known_role) == role_slug:
@@ -78,7 +98,7 @@ class AccurateSkillMatcher:
         for known_role in ROLE_PLAYBOOKS:
             if role_slug in _safe_slug(known_role) or _safe_slug(known_role) in role_slug:
                 return known_role
-        return "Data Analyst"
+        return role.strip()
 
     def _infer_sections(self, text: str) -> Dict[str, str]:
         sections = defaultdict(list)
@@ -120,10 +140,47 @@ class AccurateSkillMatcher:
         text_clean = _safe_slug(text)
 
         for skill_variant, canonical_skill in self.skill_variations.items():
-            if self._is_skill_in_text(skill_variant, text_clean):
+            if canonical_skill == "C#":
+                found = bool(re.search(r"\bc\s*\#|\bc\s+sharp\b", text or "", re.I))
+            elif canonical_skill in {".NET", "ASP.NET"}:
+                found = bool(re.search(r"\b(?:asp\s*\.\s*net|aspnet|dotnet|\.net)\b", text or "", re.I))
+            else:
+                found = self._is_skill_in_text(skill_variant, text_clean)
+            if found:
                 mentions[canonical_skill].append(skill_variant)
 
         return mentions
+
+    def _requirement_type(self, skill: str, job_text: str) -> str:
+        """Classify explicit cues and headings without turning every bullet mandatory."""
+        patterns = (
+            ("preferred", r"\b(preferred|nice[- ]to[- ]have|desirable|bonus|asset|advantageous)\b"),
+            ("required", r"\b(required|must[- ]have|essential|mandatory|minimum qualification)\b"),
+        )
+        current_section = ""
+        found_types = []
+        for raw_line in (job_text or "").splitlines():
+            line = raw_line.strip().lstrip("-*• ")
+            slug = _safe_slug(line)
+            if re.fullmatch(r"(?:minimum|required|mandatory) qualifications?", slug):
+                current_section = "required"
+                continue
+            if re.fullmatch(r"(?:preferred )?(?:qualifications|requirements|skills)", slug):
+                current_section = "preferred" if slug.startswith("preferred") else "important"
+                continue
+            if re.fullmatch(r"(?:key )?responsibilities|duties|what you will do", slug):
+                current_section = "contextual"
+                continue
+            clauses = [clause.strip() for clause in re.split(r"(?<=[.!?;])\s+", line) if clause.strip()]
+            for clause in clauses:
+                if skill not in self._extract_skill_mentions(clause):
+                    continue
+                explicit = next((kind for kind, cue in patterns if re.search(cue, clause, re.I)), None)
+                found_types.append(explicit or current_section or "unspecified")
+        for kind in ("required", "preferred", "important", "contextual"):
+            if kind in found_types:
+                return kind
+        return found_types[0] if found_types else "unspecified"
 
     def extract_skills_from_text(self, text: str, sections: Optional[Dict[str, str]] = None) -> Dict[str, List[dict]]:
         if not text:
@@ -187,8 +244,8 @@ class AccurateSkillMatcher:
 
     def _fix_example(self, skill: str) -> dict:
         return {
-            "before": "Worked on projects using relevant tools.",
-            "after": f"Implemented {skill} in production-facing work and measured outcome with clear metrics.",
+            "before": "Add evidence only if you have used this skill.",
+            "after": f"If accurate, describe where you used {skill}, your contribution, and any verified result. Otherwise, leave it out.",
         }
 
     def compare_skills_accurately(
@@ -220,7 +277,16 @@ class AccurateSkillMatcher:
         matched_skills = resume_skill_set.intersection(job_skill_set)
         missing_skills = job_skill_set - resume_skill_set
 
-        direct_score = (len(matched_skills) / len(job_skill_set)) if job_skill_set else 0.0
+        requirement_types = {skill: self._requirement_type(skill, job_text) for skill in job_skill_set}
+        requirement_weights = {
+            skill: 2.0 if requirement_types[skill] == "required" else 1.0
+            for skill in job_skill_set
+        }
+        total_requirement_weight = sum(requirement_weights.values())
+        direct_score = (
+            sum(requirement_weights[skill] for skill in matched_skills) / total_requirement_weight
+            if total_requirement_weight else 0.0
+        )
 
         role_name = self._canonical_role(target_role)
         role_playbook = ROLE_PLAYBOOKS.get(role_name, {})
@@ -246,22 +312,45 @@ class AccurateSkillMatcher:
                     "where_found": entry.get("sections_found", ["general"]),
                     "confidence": entry.get("confidence", 0.7),
                     "why_it_matters": self._skill_impact(skill, target_role),
+                    "requirement_type": requirement_types[skill],
+                    "evidence_level": (
+                        "demonstrated" if set(entry.get("sections_found", [])) & {"experience", "projects"}
+                        else "mentioned without experience or project evidence"
+                    ),
                 }
             )
 
         missing_details = []
         for skill in sorted(missing_skills):
+            related_resume_skills = sorted(self.related_skills.get(skill, set()).intersection(resume_skill_set))
             missing_details.append(
                 {
                     "skill": skill,
                     "why_it_matters": self._skill_impact(skill, target_role),
                     "fix_example": self._fix_example(skill),
+                    "requirement_type": requirement_types[skill],
+                    "evidence_level": (
+                        "related skill found; direct requirement not demonstrated"
+                        if related_resume_skills else "not detected in the resume text"
+                    ),
+                    "related_resume_skills": related_resume_skills,
+                    "related_skill_note": (
+                        "Related technologies can transfer concepts, but this does not establish experience with the requested technology."
+                        if related_resume_skills else ""
+                    ),
                 }
             )
 
         details = {
             "matched_details": matched_details,
             "missing_details": missing_details,
+            "requirement_coverage": {
+                kind: {
+                    "detected": sum(1 for skill in job_skill_set if requirement_types[skill] == kind),
+                    "matched": sum(1 for skill in matched_skills if requirement_types[skill] == kind),
+                }
+                for kind in ("required", "important", "preferred", "contextual", "unspecified")
+            },
             "resume_skills": resume_skills,
             "job_skills": job_skills,
             "industry_alignment": round(role_alignment * 100.0, 2),
@@ -270,9 +359,15 @@ class AccurateSkillMatcher:
             "target_role_context": role_name,
             "score_components": {
                 "direct_match": round(direct_score * 100.0, 2),
+                "required_skill_coverage": round(
+                    sum(1 for skill in matched_skills if requirement_types[skill] == "required") /
+                    max(1, sum(1 for skill in job_skill_set if requirement_types[skill] == "required")) * 100.0,
+                    2,
+                ) if any(requirement_types[skill] == "required" for skill in job_skill_set) else None,
                 "role_alignment": round(role_alignment * 100.0, 2),
                 "section_bonus": round(section_bonus * 100.0, 2),
             },
+            "score_method": "Catalog skill coverage diagnostic only. Final job fit is calculated separately from assessable job-specific skills, experience, responsibilities, education, preferred-skill and project evidence. The catalog is incomplete and this diagnostic is not a hiring probability.",
         }
 
         if industry and industry in self.industry_db:
@@ -447,14 +542,12 @@ def generate_job_fit_plan(
     playbook = ROLE_PLAYBOOKS.get(role_name, {})
 
     top_missing = sorted(list(missing_skills))[:5]
-    expected_gain = min(35.0, 4.5 * len(top_missing))
-
     certifications = playbook.get("certifications", [])[:3]
     portfolio_projects = playbook.get("portfolio_projects", [])[:3]
 
     plan_30 = [
         f"Close foundational gap in: {', '.join(top_missing[:2]) or 'core role skills'}",
-        "Rewrite top 5 resume bullets with action verb + metric + impact format.",
+        "Where accurate, clarify action, verified result, and impact in relevant resume bullets. Never estimate metrics.",
         "Publish one mini-project artifact (GitHub README or dashboard screenshot).",
     ]
     plan_60 = [
@@ -473,8 +566,6 @@ def generate_job_fit_plan(
         "experience_level": experience_level or "Not specified",
         "location": location or "Not specified",
         "top_missing_skills": top_missing,
-        "estimated_fit_score_gain": round(expected_gain, 1),
-        "projected_skill_score": round(min(100.0, current_skill_score + expected_gain), 1),
         "certification_suggestions": certifications,
         "portfolio_project_ideas": portfolio_projects,
         "plan_30_days": plan_30,

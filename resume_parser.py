@@ -2,6 +2,7 @@
 import PyPDF2
 import re
 import docx
+import zipfile
 from io import BytesIO
 import sys
 from typing import Any, Dict, Tuple
@@ -53,24 +54,6 @@ else:
         spacy = None
         print(f"Warning: spaCy import failed ({e}). Advanced NLP matching will be disabled.")
 
-# Download required NLTK data (run once)
-required_nltk_resources = [
-    ("tokenizers/punkt", "punkt"),
-    ("tokenizers/punkt_tab", "punkt_tab"),
-    ("corpora/stopwords", "stopwords"),
-    ("taggers/averaged_perceptron_tagger", "averaged_perceptron_tagger"),
-    ("chunkers/maxent_ne_chunker", "maxent_ne_chunker"),
-    ("corpora/words", "words"),
-]
-for resource_path, package_name in required_nltk_resources:
-    try:
-        nltk.data.find(resource_path)
-    except Exception:
-        try:
-            nltk.download(package_name, quiet=True, force=True)
-        except Exception:
-            pass
-
 # Load spaCy model for advanced NLP (install with: python -m spacy download en_core_web_sm)
 if spacy is not None:
     try:
@@ -98,6 +81,54 @@ def _read_uploaded_bytes(file) -> bytes:
         pass
 
     return data or b""
+
+
+MAX_RESUME_BYTES = 10 * 1024 * 1024
+SUPPORTED_RESUME_EXTENSIONS = {".pdf", ".docx", ".txt", ".png", ".jpg", ".jpeg"}
+
+
+def validate_resume_upload(file) -> None:
+    """Reject unsupported or oversized resume files before parsing."""
+    from pathlib import Path
+
+    if file is None:
+        raise ValueError("Choose a resume file to analyze.")
+    extension = Path(getattr(file, "name", "")).suffix.lower()
+    if extension not in SUPPORTED_RESUME_EXTENSIONS:
+        raise ValueError("Supported resume formats are PDF, DOCX, TXT, PNG and JPG.")
+    data = _read_uploaded_bytes(file)
+    size = getattr(file, "size", len(data))
+    if size > MAX_RESUME_BYTES:
+        raise ValueError("Resume files must be 10 MB or smaller.")
+    if extension == ".pdf" and not data.startswith(b"%PDF-"):
+        raise ValueError("This file does not appear to be a valid PDF.")
+    if extension == ".png" and not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise ValueError("This file does not appear to be a valid PNG image.")
+    if extension in {".jpg", ".jpeg"} and not data.startswith(b"\xff\xd8\xff"):
+        raise ValueError("This file does not appear to be a valid JPEG image.")
+    if extension in {".png", ".jpg", ".jpeg"} and Image is not None:
+        try:
+            with Image.open(BytesIO(data)) as image:
+                if image.width * image.height > 30_000_000:
+                    raise ValueError("This image exceeds the supported pixel limit.")
+                image.verify()
+        except ValueError:
+            raise
+        except Exception as exc:
+            raise ValueError("This file does not appear to be a valid image.") from exc
+    if extension == ".docx":
+        try:
+            with zipfile.ZipFile(BytesIO(data)) as archive:
+                names = set(archive.namelist())
+                expanded_size = sum(item.file_size for item in archive.infolist())
+            if "[Content_Types].xml" not in names or "word/document.xml" not in names:
+                raise ValueError("This file does not contain a valid Word document.")
+            if expanded_size > 50 * 1024 * 1024:
+                raise ValueError("This Word document expands beyond the supported processing limit.")
+        except zipfile.BadZipFile as exc:
+            raise ValueError("This file does not appear to be a valid Word document.") from exc
+    if extension == ".txt" and b"\x00" in data:
+        raise ValueError("The text file contains binary data and could not be processed safely.")
 
 
 def _ocr_pdf_bytes(pdf_bytes: bytes) -> str:
@@ -151,11 +182,12 @@ def extract_text_from_pdf(file, enable_ocr=True, return_ocr_used=False):
                     extracted_pages.append(page_text)
                 else:
                     empty_pages += 1
-            except Exception as e:
-                print(f"Error extracting text from page {page_num + 1}: {str(e)}")
+            except Exception:
+                # Parser exceptions may contain fragments of sensitive document data.
                 empty_pages += 1
-    except Exception as e:
-        print(f"Error reading PDF file: {str(e)}")
+    except Exception:
+        # Keep document contents and parser details out of application logs.
+        pass
 
     extracted_text = "\n".join(extracted_pages).strip()
     needs_ocr = enable_ocr and (not extracted_text or empty_pages > 0)
@@ -194,8 +226,8 @@ def extract_text_from_docx(file):
         
         return text.strip()
     
-    except Exception as e:
-        print(f"Error reading DOCX file: {str(e)}")
+    except Exception:
+        # Keep document contents and parser details out of application logs.
         return ""
 
 def extract_text_from_file(file, enable_ocr=True):
@@ -343,45 +375,46 @@ def extract_contact_info(text):
     return contact_info
 
 def extract_sections(text):
-    """Extract and identify different sections of the resume."""
-    sections = {}
-    
-    # Common section headers
-    section_patterns = {
-        'summary': r'(?:professional\s+)?(?:summary|profile|objective|about)',
-        'experience': r'(?:professional\s+)?(?:experience|employment|work\s+history)',
-        'education': r'education|academic\s+background|qualifications',
-        'skills': r'(?:technical\s+)?skills|competencies|expertise',
-        'projects': r'projects|portfolio|work\s+samples',
-        'certifications': r'certifications|licenses|credentials',
+    """Extract sections using anchored headings to avoid matching body words."""
+    aliases = {
+        'summary': r'(?:professional\s+)?(?:summary|profile|objective|about\s+me|career\s+overview)',
+        'experience': r'(?:(?:professional|work)\s+)?(?:experience|employment|work\s+history|career\s+history)',
+        'education': r'(?:education|academic\s+background|qualifications|academic\s+qualifications)',
+        'skills': r'(?:(?:technical|core|key)\s+)?skills(?:\s+and\s+competencies)?|competencies|expertise',
+        'projects': r'(?:selected\s+)?projects|portfolio|work\s+samples|academic\s+projects',
+        'certifications': r'certifications?|licenses?|licences?|credentials|professional\s+training',
         'awards': r'awards|achievements|honors|recognition',
         'languages': r'languages|linguistic\s+skills',
         'references': r'references|recommendations',
-        'publications': r'publications|papers|articles'
+        'publications': r'publications|papers|articles',
     }
-    
-    text_lower = text.lower()
-    lines = text.split('\n')
-    
-    for section_name, pattern in section_patterns.items():
-        # Look for section headers
-        for i, line in enumerate(lines):
-            if re.search(pattern, line.lower().strip()) and len(line.strip()) < 50:
-                # Found potential section header
-                section_content = []
-                j = i + 1
-                
-                # Extract content until next section or end
-                while j < len(lines) and not any(re.search(p, lines[j].lower().strip()) 
-                                               for p in section_patterns.values()):
-                    if lines[j].strip():
-                        section_content.append(lines[j].strip())
-                    j += 1
-                
-                if section_content:
-                    sections[section_name] = '\n'.join(section_content)
-                break
-    
+    heading_patterns = {name: re.compile(rf'^(?:{pattern})\s*:?\s*$', re.I) for name, pattern in aliases.items()}
+    inline_patterns = {name: re.compile(rf'^(?:{pattern})\s*:\s*(.+)$', re.I) for name, pattern in aliases.items()}
+    sections = {}
+    current = None
+    content = []
+
+    def save_section():
+        if current and content:
+            sections[current] = '\n'.join(content).strip()
+
+    for raw_line in (text or '').splitlines():
+        line = raw_line.strip().strip('\ufeff')
+        if not line:
+            continue
+        matched_heading = next((name for name, pattern in heading_patterns.items() if pattern.fullmatch(line)), None)
+        if matched_heading:
+            save_section()
+            current, content = matched_heading, []
+            continue
+        inline = next(((name, pattern.match(line)) for name, pattern in inline_patterns.items() if pattern.match(line)), None)
+        if inline:
+            save_section()
+            current, content = inline[0], [inline[1].group(1).strip()]
+            continue
+        if current:
+            content.append(line)
+    save_section()
     return sections
 
 def extract_skills_advanced(text, skills_database):

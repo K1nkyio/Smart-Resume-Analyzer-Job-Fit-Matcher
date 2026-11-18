@@ -98,6 +98,7 @@ class JobMatcher:
                     "experience_level": "Unknown",
                     "industry": "General",
                     "source": "live_api_adzuna",
+                    "retrieved_at": datetime.utcnow().isoformat() + "Z",
                     "url": job.get("redirect_url", ""),
                 }
             )
@@ -127,7 +128,8 @@ class JobMatcher:
                     "salary_max": mid["max"],
                     "experience_level": "Mid Level",
                     "industry": "General",
-                    "source": "fallback_dataset",
+                    "source": "illustrative_config",
+                    "data_type": "illustrative_reference",
                     "url": "",
                 }
             )
@@ -145,9 +147,9 @@ class JobMatcher:
         finally:
             self.local_only = original_mode
 
-        if jobs:
-            return jobs
-        return self._fallback_jobs(query=query, location=location)
+        # Benchmark data is useful for reference, but it must never be returned
+        # as if it were a current vacancy.
+        return jobs
 
     def find_similar_jobs(
         self,
@@ -170,7 +172,7 @@ class JobMatcher:
                 required_skills.update(self.industry_skills[industry].get("must_have", [])[:3])
 
             if not required_skills:
-                required_skills = set(self._fallback_jobs(query, location)[0]["description"].split()[:4])
+                continue
 
             matched_skills = user_skills.intersection(required_skills)
             missing_skills = required_skills - user_skills
@@ -237,7 +239,8 @@ class JobMatcher:
             "median": int((base["min"] + base["max"]) / 2),
             "growth": int(base.get("growth", self._growth_estimate(experience_level))),
             "sample_size": 0,
-            "source": "fallback_dataset",
+            "source": "illustrative_config",
+            "data_type": "illustrative_reference",
             "location": location,
         }
 
@@ -285,16 +288,15 @@ class JobMatcher:
 
         for skill in sorted(user_skills):
             role_data = self.job_trends.get(target_role or "", [])
-            if role_data:
-                demand_score = int(statistics.mean(item["demand"] for item in role_data))
-            else:
-                demand_score = 55
+            if not role_data:
+                continue
+            demand_score = int(statistics.mean(item["demand"] for item in role_data))
             trends[skill] = {
                 "trend": "stable",
                 "demand_score": demand_score,
                 "job_openings": 0,
                 "growth_rate": int(demand_score / 8),
-                "source": "fallback_dataset",
+                "source": "illustrative_config",
             }
         return trends
 
@@ -406,10 +408,10 @@ def generate_market_report(
         "generated_at": datetime.utcnow().isoformat() + "Z",
         "skill_demand": matcher.analyze_job_market_trends(skills, location, role, local_only),
         "salary_snapshot": salary_snapshot,
-        "data_source": salary_snapshot.get("source", "fallback_dataset"),
+        "data_source": salary_snapshot.get("source", "illustrative_config"),
         "hiring_summary": {
             "market_role": role,
             "location": location or "United States",
-            "source": salary_snapshot.get("source", "fallback_dataset"),
+            "source": salary_snapshot.get("source", "illustrative_config"),
         },
     }

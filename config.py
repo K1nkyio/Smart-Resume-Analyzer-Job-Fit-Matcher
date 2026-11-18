@@ -16,7 +16,7 @@ SKILLS = {
         
         # Backend & APIs
         "Django": 4, "Flask": 3, "FastAPI": 3, "Spring Boot": 4, "ASP.NET": 3,
-        "Laravel": 3, "Ruby on Rails": 3, "Express": 3, "GraphQL": 3, "REST API": 4,
+        "Laravel": 3, "Ruby on Rails": 3, "Express": 3, "GraphQL": 3, "REST API": 4, "API Development": 4,
         "WebSocket": 2, "gRPC": 2, "Microservices": 4, "API Gateway": 3,
         
         # Databases
@@ -595,6 +595,8 @@ SKILL_SYNONYMS = {
     "SQL Server": ["mssql", "ms sql server"],
     "Google Cloud": ["gcp", "google cloud platform"],
     "REST API": ["restful api", "rest apis", "restful services"],
+    "API Development": ["api development", "api integration", "developed apis", "built apis"],
+    "Next.js": ["nextjs", "next js"],
     "GitHub Actions": ["github action", "gha"],
     "Kubernetes": ["k8s"],
     "Power BI": ["powerbi"],
@@ -606,9 +608,10 @@ SKILL_SYNONYMS = {
 PRIVACY_POLICY_TEXT = """
 Privacy Policy (Local Application)
 
-1. Resume and job description data is processed only for analysis features in this application.
-2. If "No Data Retained" mode is enabled, resume content and analysis outputs are not stored in the local database.
-3. Uploaded files are processed in-memory and are not persisted as files by default.
-4. If external market APIs are enabled, only role/location queries are sent; resume body content is not transmitted.
-5. Users can clear locally stored history at any time from the workflow controls.
+1. No-retention mode is enabled by default. In this mode, resume content and results are not written to SQLite.
+2. Analysis results remain in Streamlit session memory until that session ends or is cleared.
+3. Persistent local history requires turning off no-retention mode; users can clear stored history in the sidebar.
+4. Ollama processing is opt-in. When enabled, resume and job text are sent to the configured local Ollama service.
+5. Market lookup is opt-in and sends role and location queries to Adzuna; resume text is not sent.
+6. Sentence-transformer downloads are not used for default similarity scoring; the default uses local TF-IDF.
 """

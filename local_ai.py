@@ -64,6 +64,7 @@ def ollama_generate(prompt: str, settings: Optional[LocalAISettings] = None) -> 
 @lru_cache(maxsize=1)
 def _get_sentence_transformer(model_name: str):
     try:
+        from huggingface_hub import snapshot_download
         from sentence_transformers import SentenceTransformer
     except ModuleNotFoundError as e:
         raise ModuleNotFoundError(
@@ -71,7 +72,15 @@ def _get_sentence_transformer(model_name: str):
             "or rely on the TF-IDF fallback by keeping semantic scoring enabled."
         ) from e
 
-    return SentenceTransformer(model_name)
+    model_path = model_name
+    if not os.path.isdir(model_name):
+        try:
+            model_path = snapshot_download(model_name, local_files_only=True)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Embedding model '{model_name}' is not cached locally. Download it separately with user approval, then retry."
+            ) from exc
+    return SentenceTransformer(model_path)
 
 
 def embed_texts(texts: List[str], model_name: str = DEFAULT_EMBEDDINGS_MODEL) -> np.ndarray:
@@ -86,8 +95,11 @@ def _tfidf_similarity_score(resume_text: str, job_text: str) -> float:
     if not resume or not job:
         return 0.0
     vectorizer = TfidfVectorizer(stop_words="english", max_features=3000, ngram_range=(1, 2))
-    mat = vectorizer.fit_transform([resume, job])
-    sim = float((mat[0] @ mat[1].T).A[0][0])
+    try:
+        mat = vectorizer.fit_transform([resume, job])
+    except ValueError:
+        return 0.0
+    sim = float((mat[0] @ mat[1].T).toarray()[0][0])
     return round(max(0.0, min(100.0, sim * 100.0)), 2)
 
 
@@ -97,11 +109,19 @@ def cosine_similarity_matrix(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return np.matmul(a, b.T)
 
 
-def semantic_match_score(resume_text: str, job_text: str, model_name: str = DEFAULT_EMBEDDINGS_MODEL) -> float:
+def semantic_match_score(
+    resume_text: str,
+    job_text: str,
+    model_name: str = DEFAULT_EMBEDDINGS_MODEL,
+    use_embeddings: bool = False,
+) -> float:
     resume = (resume_text or "").strip()
     job = (job_text or "").strip()
     if not resume or not job:
         return 0.0
+
+    if not use_embeddings:
+        return _tfidf_similarity_score(resume, job)
 
     try:
         vecs = embed_texts([resume, job], model_name=model_name)
@@ -111,18 +131,26 @@ def semantic_match_score(resume_text: str, job_text: str, model_name: str = DEFA
         return _tfidf_similarity_score(resume, job)
 
 
-_JSON_RE = re.compile(r"\{[\s\S]*\}")
+def _extract_json_value(text: str):
+    """Parse a JSON object or list from a model response, including code fences."""
+    cleaned = (text or "").strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.IGNORECASE)
+    start_positions = [pos for pos in (cleaned.find("{"), cleaned.find("[")) if pos >= 0]
+    if not start_positions:
+        return None
+    start = min(start_positions)
+    for end in range(len(cleaned), start, -1):
+        try:
+            return json.loads(cleaned[start:end])
+        except json.JSONDecodeError:
+            continue
+    return None
 
 
 def _extract_json_object(text: str) -> dict:
-    match = _JSON_RE.search(text or "")
-    if not match:
-        return {}
-    blob = match.group(0)
-    try:
-        return json.loads(blob)
-    except Exception:
-        return {}
+    value = _extract_json_value(text)
+    return value if isinstance(value, dict) else {}
 
 
 def extract_structured_profile(resume_text: str, job_text: str, settings: Optional[LocalAISettings] = None) -> dict:
@@ -181,17 +209,18 @@ def generate_tailored_resume_suggestions(
 
     prompt = (
         "You are a resume coach. Suggest improvements tailored to the job description. "
-        "Do NOT invent experience. Keep facts unchanged. Return ONLY valid JSON list.\n\n"
-        "Schema: [ {\"issue\": string, \"recommendation\": string, \"example_rewrite\": string} ]\n\n"
+        "Do NOT invent experience, metrics, qualifications, tools, or outcomes. Keep facts unchanged. "
+        "Only suggest rewriting exact text quoted from the resume; if no safe rewrite is possible, return an empty list. Return ONLY valid JSON list.\n\n"
+        "Schema: [ {\"issue\": string, \"recommendation\": string, \"section\": string, \"original_text\": string, \"example_rewrite\": string} ]\n\n"
         f"JOB DESCRIPTION:\n{job[:6000]}\n\n"
         f"RESUME:\n{resume[:12000]}\n"
     )
     output = ollama_generate(prompt, settings=settings)
     if not output:
         return []
-    data = _extract_json_object(output)
+    data = _extract_json_value(output)
     if isinstance(data, list):
-        return data
+        return [item for item in data if isinstance(item, dict)][:8]
     return []
 
 
@@ -215,3 +244,43 @@ def generate_cover_letter(
     )
     output = ollama_generate(prompt, settings=settings)
     return output or ""
+
+
+def generate_career_coach_response(
+    question: str,
+    analysis: dict,
+    settings: Optional[LocalAISettings] = None,
+) -> str:
+    """Answer from a compact analysis summary, not the raw resume document."""
+    skill_details = analysis.get("skill_details", {})
+    context = {
+        "target_role": skill_details.get("target_role_context", ""),
+        "job_fit_score": analysis.get("overall_score"),
+        "resume_quality_score": analysis.get("resume_quality", {}).get("score"),
+        "matched_qualifications": [item.get("skill") for item in skill_details.get("matched_details", [])],
+        "unmatched_qualifications": [item.get("skill") for item in skill_details.get("missing_details", [])],
+        "related_but_unconfirmed_skills": {
+            item.get("skill"): item.get("related_resume_skills", [])
+            for item in skill_details.get("missing_details", [])
+            if item.get("related_resume_skills")
+        },
+        "other_qualification_evidence": {
+            category: [
+                {"requirement": item.get("requirement"), "status": item.get("status")}
+                for item in analysis.get("qualification_evidence", {}).get(category, [])
+            ]
+            for category in ("education", "experience", "certifications")
+        },
+        "resume_quality_recommendations": [item.get("action") for item in analysis.get("resume_quality", {}).get("recommendations", [])],
+        "job_recommendations": analysis.get("ats_details", {}).get("suggestions", [])[:8],
+    }
+    prompt = (
+        "You are a practical career coach. Answer using only the supplied analysis context. "
+        "Do not infer experience, proficiency, achievements, or qualifications that are absent. Treat related technologies as transferable context only, never as direct proficiency. "
+        "Treat experience duration as self-reported and credentials as unverified. "
+        "State when context is insufficient, distinguish suggestions from confirmed evidence, "
+        "and give a concise next step. Do not describe scores as hiring probabilities.\n\n"
+        f"ANALYSIS CONTEXT:\n{json.dumps(context, ensure_ascii=False)}\n\n"
+        f"USER QUESTION:\n{(question or '').strip()[:1500]}\n"
+    )
+    return ollama_generate(prompt, settings=settings)

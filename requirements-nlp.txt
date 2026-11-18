@@ -1,0 +1,2 @@
+# Optional advanced NLP. Install a compatible spaCy model separately if needed.
+spacy; python_version < "3.14"

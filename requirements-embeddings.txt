@@ -1,0 +1,2 @@
+# Optional only. Default analysis uses local TF-IDF and does not load this model.
+sentence-transformers
