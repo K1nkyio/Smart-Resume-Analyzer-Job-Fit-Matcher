@@ -10,3 +10,5 @@ email-validator
 scikit-learn
 numpy
 requests
+openai>=1.40,<3.0
+python-dotenv>=1.0,<2.0

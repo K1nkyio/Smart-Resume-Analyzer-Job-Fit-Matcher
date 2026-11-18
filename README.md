@@ -10,6 +10,24 @@ A local Streamlit app for resume parsing, job fit analysis, ATS-oriented checks,
 
 OCR is optional: install `requirements-ocr.txt`, the Tesseract executable, and Poppler for image-based PDFs. Optional spaCy support is listed in `requirements-nlp.txt`; it also needs a compatible model installed separately. Local AI suggestions use Ollama only when enabled in the sidebar; install and run Ollama separately and configure `OLLAMA_BASE_URL` and `LOCAL_AI_OLLAMA_MODEL` if needed. The default text similarity is local TF-IDF and does not download an embedding model. Embedding support is optional in `requirements-embeddings.txt`; analysis only loads a locally cached or local-path model and does not download models automatically.
 
+### Optional GroqCloud AI
+
+Install the added `openai` dependency with the core requirements. Create a GroqCloud API key, then set these environment variables before starting Streamlit:
+
+```powershell
+$env:AI_PROVIDER = "groq"
+$env:AI_ENABLED = "true"
+$env:GROQ_API_KEY = "your-key"
+$env:GROQ_MODEL = "openai/gpt-oss-120b"
+streamlit run app.py
+```
+
+Copy `.env.example` to `.env`, set `GROQ_API_KEY` and `AI_ENABLED=true`, then restart Streamlit. The app loads `.env` without overriding environment variables already set by your shell or deployment. Keep `.env` private; Git ignores it. The sidebar reports provider configuration and lets you check connectivity without sending resume text. Before each analysis, enable the AI consent toggle; contact redaction is enabled by default. Set `AI_PROVIDER=ollama` to use the configured local Ollama service. Provider selection is explicit: the app never falls back to a different provider.
+
+The AI layer uses Groq's OpenAI-compatible endpoint and JSON mode, validates every returned object locally, verifies positive evidence quotations against the submitted resume, and rejects rewrites that add new numeric claims. Groq's default inference requests are not retained, but it may temporarily retain inputs and outputs for reliability or abuse investigations for up to 30 days; its Zero Data Retention setting can change that behavior. Review Groq's [data controls](https://console.groq.com/docs/your-data) before transmitting resumes. Common contact redaction does not guarantee anonymity, and names or identifiers in free text can remain.
+
+Use the sidebar's **Dark mode** switch to change the current session's app, table, and chart appearance. Light mode is the default.
+
 ## Privacy and storage
 
 - No-retention mode is enabled by default. It prevents analysis results from being written to the local SQLite workflow tables.
@@ -48,7 +66,7 @@ The skill matcher must receive the original text with line breaks. Flattening te
 
 Education, certification, and numeric experience-duration requirements are compared conservatively against extracted resume text and shown as separate evidence checks. Missing sections and ambiguous requirements are reported as unknown; stated years are self-reported, and credentials are not independently verified. These checks do not affect the numeric job-fit score. The current requirement extractor does not determine transferable skills beyond the curated technology relationships above.
 
-The Career Coach is available only when Ollama was explicitly enabled for the analysis. It receives a compact summary of detected scores, matches, gaps and recommendations rather than the raw resume text; local model output can still be wrong and should be checked against the evidence.
+The Career Coach is available only when the configured AI provider was explicitly enabled and consented to for the analysis. It receives a compact summary of detected scores, matches, gaps and recommendations rather than the raw resume text; AI output can still be wrong and should be checked against the evidence.
 
 ## Validation
 

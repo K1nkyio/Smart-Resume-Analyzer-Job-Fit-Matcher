@@ -29,6 +29,40 @@ def _evidence_value(item: dict) -> float:
     return 0.0
 
 
+def calculate_evidence_confidence(
+    resume_text: str,
+    job_fit: dict,
+    parser_metadata: Optional[dict] = None,
+) -> dict:
+    """Estimate how complete/readable the evidence base is, not candidate fit.
+
+    Confidence combines extracted-text quality (60%) with the fraction of the
+    configured job-fit category weight that had assessable source evidence
+    (40%). It intentionally does not use match outcomes or AI output.
+    """
+    text = resume_text or ""
+    metadata = parser_metadata or {}
+    char_count = int(metadata.get("char_count", len(text)))
+    printable_ratio = sum(character.isprintable() for character in text) / max(1, len(text))
+    length_coverage = min(1.0, char_count / 300.0)
+    extraction_quality = max(0.0, min(100.0, printable_ratio * length_coverage * 100.0))
+    if metadata.get("ocr_used"):
+        extraction_quality *= 0.9
+    category_coverage = float(job_fit.get("category_coverage_percent", job_fit.get("evidence_coverage_percent", 0.0)))
+    score = round(max(0.0, min(100.0, extraction_quality * 0.6 + category_coverage * 0.4)), 1)
+    return {
+        "score": score,
+        "score_type": "heuristic_evidence_availability",
+        "components": {
+            "text_extraction_quality": round(extraction_quality, 1),
+            "assessable_job_category_coverage": round(category_coverage, 1),
+        },
+        "weights": {"text_extraction_quality": 0.6, "assessable_job_category_coverage": 0.4},
+        "method": "60% extracted-text quality plus 40% coverage of configured job-fit category weights with assessable resume evidence. It does not measure skill match, candidate ability, or AI confidence.",
+        "limitations": "A heuristic indicator of how much readable, relevant evidence was available. OCR can reduce extraction confidence; missing evidence is not proof of missing ability.",
+    }
+
+
 def calculate_job_fit(
     skill_details: dict,
     job_requirements: dict,
@@ -162,6 +196,7 @@ def calculate_job_fit(
         "category_scores": {key: round(component_values[key], 1) for key in available},
         "category_evidence": {key: component_evidence.get(key, {}) for key in available},
         "weights_used": {key: round(effective_weights[key] / weight_total, 4) for key in available} if weight_total else {},
+        "category_coverage_percent": confidence_coverage,
         "evidence_coverage_percent": confidence_coverage,
         "requirements": evidence_rows,
         "unknown_qualification_checks": [item for category in ("education", "experience", "certifications") for item in qualification_evidence.get(category, []) if "cannot determine" in item.get("status", "")],
