@@ -53,51 +53,72 @@ _DARK_THEME = st.session_state["dark_mode"]
 px.defaults.template = "plotly_dark" if _DARK_THEME else "plotly_white"
 _theme_tokens = (
     {
-        "background": "#0e1117", "surface": "#161b22", "raised": "#21262d",
-        "sidebar": "#0b0f14", "text": "#f0f6fc", "muted": "#a8b3c0",
-        "border": "#303a46", "input": "#0d1117", "primary": "#45d6ca",
-        "primary_text": "#06201d", "hover": "#26313d", "code": "#1c2631",
+        "background": "#0b1220", "surface": "#121c2b", "raised": "#1a2738",
+        "sidebar": "#0e1726", "text": "#f4f7fb", "muted": "#b8c4d2",
+        "border": "#35465c", "input": "#101a29", "primary": "#56e0d2",
+        "primary_text": "#062b27", "hover": "#223247", "code": "#172537",
+        "button": "#172538", "button_text": "#f4f7fb", "focus": "#68b8ff",
     }
     if _DARK_THEME
     else {
-        "background": "#f4f7fb", "surface": "#ffffff", "raised": "#edf2f7",
-        "sidebar": "#ffffff", "text": "#172536", "muted": "#4b5d70",
-        "border": "#cbd5e1", "input": "#ffffff", "primary": "#087b83",
-        "primary_text": "#ffffff", "hover": "#e8eef4", "code": "#edf2f7",
+        "background": "#f3f6fb", "surface": "#ffffff", "raised": "#edf2f8",
+        "sidebar": "#f8fafd", "text": "#152235", "muted": "#46566b",
+        "border": "#c4cfdd", "input": "#ffffff", "primary": "#087f8c",
+        "primary_text": "#ffffff", "hover": "#e4edf5", "code": "#edf2f8",
+        "button": "#ffffff", "button_text": "#152235", "focus": "#1769aa",
     }
 )
 st.markdown(
     f"""<style>
     :root {{
       color-scheme: {'dark' if _DARK_THEME else 'light'};
+      --primary-color: {_theme_tokens['primary']} !important;
+      --background-color: {_theme_tokens['background']} !important;
+      --secondary-background-color: {_theme_tokens['surface']} !important;
+      --text-color: {_theme_tokens['text']} !important;
       --app-bg: {_theme_tokens['background']}; --app-surface: {_theme_tokens['surface']};
       --app-raised: {_theme_tokens['raised']}; --app-text: {_theme_tokens['text']};
       --app-muted: {_theme_tokens['muted']}; --app-border: {_theme_tokens['border']};
       --app-input: {_theme_tokens['input']}; --app-primary: {_theme_tokens['primary']};
       --app-hover: {_theme_tokens['hover']}; --app-code: {_theme_tokens['code']};
+      --app-button: {_theme_tokens['button']}; --app-button-text: {_theme_tokens['button_text']};
+      --app-focus: {_theme_tokens['focus']};
     }}
     html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"] {{
       background: var(--app-bg) !important; color: var(--app-text) !important;
     }}
+    .stApp p, .stApp li, .stApp h1, .stApp h2, .stApp h3, .stApp h4,
+    .stApp h5, .stApp label, .stApp [data-testid="stMarkdownContainer"],
+    .stApp [data-testid="stWidgetLabel"] {{ color: var(--app-text) !important; }}
+    .stApp [data-testid="stWidgetLabel"] * {{ color: var(--app-text) !important; }}
     [data-testid="stMain"] > div {{ background: var(--app-bg); }}
     [data-testid="stSidebar"] {{ background: {_theme_tokens['sidebar']} !important; border-right: 1px solid var(--app-border); }}
     [data-testid="stHeader"], [data-testid="stToolbar"] {{ background: var(--app-bg) !important; }}
     [data-testid="stAppViewContainer"] .block-container {{ color: var(--app-text); }}
-    [data-testid="stMarkdownContainer"], [data-testid="stMarkdownContainer"] *,
-    [data-testid="stWidgetLabel"] *, [data-testid="stCaptionContainer"],
+    [data-testid="stMarkdownContainer"], [data-testid="stWidgetLabel"],
     [data-testid="stRadio"] label, [data-testid="stCheckbox"] label,
     [data-testid="stToggle"] label, [data-testid="stExpander"] summary {{
       color: var(--app-text) !important;
     }}
-    [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] * {{ color: var(--app-muted) !important; }}
-    h1, h2, h3, h4, h5, p, li, label {{ color: var(--app-text); }}
+    [data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] li,
+    [data-testid="stMarkdownContainer"] h1, [data-testid="stMarkdownContainer"] h2,
+    [data-testid="stMarkdownContainer"] h3, [data-testid="stMarkdownContainer"] h4,
+    [data-testid="stMarkdownContainer"] h5, [data-testid="stMarkdownContainer"] strong,
+    [data-testid="stMarkdownContainer"] em, [data-testid="stMarkdownContainer"] span {{ color: var(--app-text) !important; }}
+    .stApp [data-testid="stCaptionContainer"], .stApp [data-testid="stCaptionContainer"] *,
+    .stApp small {{ color: var(--app-muted) !important; }}
     [data-testid="stMetric"], [data-testid="stExpander"] details,
     [data-testid="stVerticalBlockBorderWrapper"], [data-testid="stFileUploaderDropzone"] {{
       background: var(--app-surface) !important; color: var(--app-text) !important;
       border-color: var(--app-border) !important;
     }}
-    [data-testid="stMetricLabel"] *, [data-testid="stMetricDelta"] {{ color: var(--app-muted) !important; }}
-    [data-testid="stAlert"] {{ background: var(--app-surface) !important; color: var(--app-text) !important; }}
+    .stApp [data-testid="stMetricLabel"] *, .stApp [data-testid="stMetricDelta"] {{ color: var(--app-muted) !important; }}
+    [data-testid="stMetricValue"] *, [data-testid="stMetric"] {{ color: var(--app-text) !important; }}
+    [data-testid="stAlert"] {{ background: var(--app-surface) !important; color: var(--app-text) !important; border: 1px solid var(--app-border); }}
+    [data-testid="stAlert"] *, [data-testid="stNotification"] * {{ color: var(--app-text) !important; }}
+    [data-testid="stFileUploaderDropzone"] *, [data-testid="stChatInput"] *,
+    [data-testid="stDataFrame"], [data-testid="stTable"] {{ color: var(--app-text) !important; }}
+    [data-testid="stExpander"] summary, [data-testid="stExpander"] summary svg {{ color: var(--app-text) !important; fill: currentColor; }}
     input, textarea, [data-baseweb="input"] > div, [data-baseweb="select"] > div,
     [data-testid="stDateInput"] input, [data-testid="stNumberInput"] input {{
       background: var(--app-input) !important; color: var(--app-text) !important;
@@ -110,15 +131,47 @@ st.markdown(
     [data-baseweb="popover"], [role="listbox"] {{ background: var(--app-surface) !important; }}
     [role="option"]:hover, [data-baseweb="menu"] li:hover {{ background: var(--app-hover) !important; }}
     input:focus, textarea:focus, [data-baseweb="select"] > div:focus-within {{
-      outline: 2px solid var(--app-primary) !important; outline-offset: 1px;
+      outline: 2px solid var(--app-focus) !important; outline-offset: 1px;
     }}
-    [data-testid="stTabs"] button {{ color: var(--app-muted) !important; }}
-    [data-testid="stTabs"] button[aria-selected="true"] {{ color: var(--app-primary) !important; }}
+    [data-testid="stTabs"] button, [data-testid="stTabs"] button * {{ color: var(--app-muted) !important; }}
+    [data-testid="stTabs"] button[aria-selected="true"], [data-testid="stTabs"] button[aria-selected="true"] * {{ color: var(--app-primary) !important; border-bottom-color: var(--app-primary) !important; }}
     [data-testid="stDataFrame"] {{ border: 1px solid var(--app-border); border-radius: 8px; }}
     [data-testid="stCode"] pre, code {{ background: var(--app-code); color: var(--app-text); }}
-    .stButton > button {{ background: var(--app-surface); border: 1px solid var(--app-border); color: var(--app-text); }}
-    .stButton > button:hover {{ background: var(--app-hover); border-color: var(--app-primary); color: var(--app-text); }}
-    .stButton > button[kind="primary"] {{ background: var(--app-primary); border-color: var(--app-primary); color: {_theme_tokens['primary_text']}; }}
+    [data-testid="stButton"] > button, [data-testid="stDownloadButton"] > button,
+    [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-primary"] {{
+      background: var(--app-button) !important; border: 1px solid var(--app-border) !important;
+      color: var(--app-button-text) !important; font-weight: 600; transition: background .15s ease, border-color .15s ease;
+    }}
+    [data-testid="stNumberInput"] button, [data-testid="stDateInput"] button,
+    [data-baseweb="select"] button {{ background: var(--app-button) !important; color: var(--app-button-text) !important; border-color: var(--app-border) !important; }}
+    [data-testid="stNumberInput"] button *, [data-testid="stDateInput"] button *,
+    [data-baseweb="select"] button * {{ color: var(--app-button-text) !important; fill: currentColor !important; }}
+    [data-testid="stCheckbox"] input, [data-testid="stRadio"] input {{ accent-color: var(--app-primary); }}
+    [data-testid="stToggle"] [role="switch"][aria-checked="true"] {{ background: var(--app-primary) !important; border-color: var(--app-primary) !important; }}
+    button:focus-visible {{ outline: 2px solid var(--app-focus) !important; outline-offset: 2px; }}
+    [data-testid="stButton"] > button *, [data-testid="stDownloadButton"] > button *,
+    [data-testid="stBaseButton-secondary"] * {{ color: var(--app-button-text) !important; fill: currentColor !important; }}
+    [data-testid="stButton"] > button:hover, [data-testid="stDownloadButton"] > button:hover {{
+      background: var(--app-hover) !important; border-color: var(--app-primary) !important; color: var(--app-text) !important;
+    }}
+    [data-testid="stButton"] > button[kind="primary"], .stButton > button[kind="primary"],
+    [data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primary"]:hover {{
+      background: var(--app-primary) !important; border-color: var(--app-primary) !important;
+      color: {_theme_tokens['primary_text']} !important; font-weight: 700;
+    }}
+    [data-testid="stButton"] > button[kind="primary"] *, .stButton > button[kind="primary"] *,
+    [data-testid="stBaseButton-primary"] * {{ color: {_theme_tokens['primary_text']} !important; fill: currentColor !important; }}
+    [data-testid="stButton"] > button:disabled, [data-testid="stDownloadButton"] > button:disabled {{ opacity: .55; }}
+    [data-testid="stBaseButton-primary"]:disabled {{ opacity: .55; }}
+    [data-testid="stSidebar"] [data-testid="stExpander"] {{ border: 1px solid var(--app-border); border-radius: 12px; background: var(--app-surface) !important; }}
+    [data-testid="stSidebar"] [data-testid="stExpander"] summary {{ font-weight: 650; }}
+    [data-testid="stSidebar"] [data-testid="stRadio"] > div {{ gap: .35rem; }}
+    [data-testid="stSidebar"] [data-testid="stRadio"] label {{ padding: .45rem .6rem; border-radius: 9px; }}
+    [data-testid="stSidebar"] [data-testid="stRadio"] label:hover {{ background: var(--app-hover); }}
+    [data-testid="stSidebar"] [data-testid="stHorizontalBlock"] {{ align-items: center; }}
+    .sidebar-brand {{ padding: .3rem 0 .85rem; }}
+    .sidebar-brand strong {{ display: block; color: var(--app-text); font-size: 1.05rem; letter-spacing: -.02em; }}
+    .sidebar-brand span {{ color: var(--app-muted); font-size: .78rem; }}
     a {{ color: var(--app-primary) !important; }}
     </style>""",
     unsafe_allow_html=True,
@@ -1004,82 +1057,90 @@ if "result_a" not in st.session_state and "job_comparison_results" not in st.ses
     st.info("Start by choosing a workspace, uploading your resume, and adding a job description. You can run local analysis without saving your data.")
 
 with st.sidebar:
-    st.header("Appearance")
-    st.toggle("Dark mode", key="dark_mode", help="Switch the app, tables, and charts between dark and light themes for this session.")
+    st.markdown(
+        '<div class="sidebar-brand"><strong>RESUME STUDIO</strong><span>Evidence-led career tools</span></div>',
+        unsafe_allow_html=True,
+    )
+    st.toggle("Dark appearance", key="dark_mode", help="Switch the app, tables, and charts between dark and light themes for this session.")
     st.divider()
-    st.header("AI Configuration")
+    st.markdown("##### Workspace")
+    analysis_mode = st.radio(
+        "Choose a workflow",
+        ["Analyze Resume + Job", "Compare Two Resumes", "Compare Job Opportunities"],
+        key="analysis_mode",
+        label_visibility="collapsed",
+    )
+
     ai_config = load_ai_settings()
     ai_config_status = ai_status(ai_config)
-    st.caption(f"Provider: {ai_config.provider.title()}")
-    st.caption(f"Selected model: {ai_config.model}")
-    st.caption(f"AI enabled by environment: {'Yes' if ai_config.enabled else 'No'}")
     connection_key = f"{ai_config.provider}:{ai_config.model}"
     connection_status = st.session_state.get("ai_connection_status", {}).get(connection_key)
     connection_label = (
         connection_status.get("message") if connection_status
         else ai_config_status.get("message", "Not configured")
     )
-    st.caption(f"Connection: {connection_label}")
-    if st.button("Check AI connection", disabled=not ai_config_status.get("available"), key="check_ai_connection"):
-        checked = check_connection(ai_config)
-        statuses = dict(st.session_state.get("ai_connection_status", {}))
-        statuses[connection_key] = checked
-        st.session_state["ai_connection_status"] = statuses
-        if checked.get("available"):
-            st.success(checked["message"])
-        else:
-            st.warning(checked["message"])
-    st.caption(f"Last successful request: {st.session_state.get('ai_last_success', 'None this session')}")
-    if st.session_state.get("ai_last_error"):
-        st.warning(st.session_state["ai_last_error"])
-    if st.button("Clear temporary AI cache", key="clear_ai_cache"):
-        clear_ai_cache()
-        st.success("Temporary in-memory AI cache cleared.")
-    st.divider()
-    st.header("Analysis Setup")
-    analysis_mode = st.radio(
-        "Workspace",
-        ["Analyze Resume + Job", "Compare Two Resumes", "Compare Job Opportunities"],
-        key="analysis_mode",
-    )
+    with st.expander("Role & context", expanded=False):
+        role_options = sorted(ROLE_PLAYBOOKS.keys())
+        selected_role = st.selectbox("Target role", role_options, index=0)
+        custom_role = st.text_input("Custom role (optional)")
+        target_role = custom_role.strip() if custom_role.strip() else selected_role
+        industry = st.selectbox(
+            "Industry",
+            ["Technology", "Healthcare", "Finance", "Marketing", "Education", "Engineering", "General"],
+        )
+        experience_level = st.selectbox("Experience level", ["Entry Level", "Mid Level", "Senior Level", "Executive"])
+        location = st.text_input("Target location", value="United States")
 
-    role_options = sorted(ROLE_PLAYBOOKS.keys())
-    selected_role = st.selectbox("Target Role", role_options, index=0)
-    custom_role = st.text_input("Custom Role (optional)")
-    target_role = custom_role.strip() if custom_role.strip() else selected_role
+    with st.expander("Processing & privacy", expanded=False):
+        local_only_mode = st.toggle("Local-only processing", value=True,
+            help="Disables external market lookups. Resume matching remains local unless AI consent is enabled.")
+        no_data_retained = st.toggle("No data retained", value=True,
+            help="Analysis is not written to SQLite. Results remain in this Streamlit session until it ends.")
+        enable_ocr = st.toggle("Enable OCR for image PDFs", value=True)
+        if st.button("Clear stored workflow history", use_container_width=True):
+            get_store().clear_all_history()
+            st.success("Stored workflow history cleared.")
 
-    industry = st.selectbox(
-        "Industry",
-        ["Technology", "Healthcare", "Finance", "Marketing", "Education", "Engineering", "General"],
-    )
-    experience_level = st.selectbox("Experience Level", ["Entry Level", "Mid Level", "Senior Level", "Executive"])
-    location = st.text_input("Target Location", value="United States")
-
-    local_only_mode = st.toggle("Local-only processing", value=True)
-    no_data_retained = st.toggle("No data retained (recommended)", value=True,
-        help="Analysis is not written to SQLite. Results remain in this Streamlit session until it ends.")
-    enable_ocr = st.toggle("Enable OCR for image PDFs", value=True)
-
-    enable_local_ai = st.toggle(
-        "I consent to AI analysis for this session",
-        value=False,
-        disabled=not ai_config_status.get("available"),
-        help="When enabled, resume and job text are sent to the configured provider. No provider fallback occurs.",
-    )
-    redact_ai_data = st.toggle(
-        "Redact common contact details before AI transmission",
-        value=True,
-        disabled=not enable_local_ai,
-        help="Removes email addresses, phone-like numbers, LinkedIn profile URLs, and a labeled name line. Other identifying details may remain.",
-    )
-    ollama_model = (
-        st.text_input("Ollama model", value=ai_config.model)
-        if ai_config.provider == "ollama" else ai_config.model
-    )
-
-    if st.button("Clear stored workflow history"):
-        get_store().clear_all_history()
-        st.success("Stored history cleared.")
+    with st.expander("AI assistant", expanded=False):
+        st.caption(f"Provider · {ai_config.provider.title()}")
+        st.caption(f"Model · {ai_config.model}")
+        availability = "Enabled" if ai_config.enabled else "Disabled by environment"
+        st.caption(f"Availability · {availability}")
+        st.caption(f"Connection · {connection_label}")
+        if st.button("Check AI connection", disabled=not ai_config_status.get("available"), key="check_ai_connection", use_container_width=True):
+            checked = check_connection(ai_config)
+            statuses = dict(st.session_state.get("ai_connection_status", {}))
+            statuses[connection_key] = checked
+            st.session_state["ai_connection_status"] = statuses
+            if checked.get("available"):
+                st.success(checked["message"])
+            else:
+                st.warning(checked["message"])
+        last_success = st.session_state.get("ai_last_success", "None this session")
+        if isinstance(last_success, str) and "T" in last_success:
+            last_success = last_success.replace("T", " ")[:19] + " UTC"
+        st.caption(f"Last successful request · {last_success}")
+        if st.session_state.get("ai_last_error"):
+            st.warning(st.session_state["ai_last_error"])
+        enable_local_ai = st.toggle(
+            "I consent to AI analysis",
+            value=False,
+            disabled=not ai_config_status.get("available"),
+            help="When enabled, resume and job text are sent to the configured provider. No provider fallback occurs.",
+        )
+        redact_ai_data = st.toggle(
+            "Redact common contact details",
+            value=True,
+            disabled=not enable_local_ai,
+            help="Removes emails, phone-like numbers, LinkedIn URLs, and labeled name lines. Other identifying details may remain.",
+        )
+        ollama_model = (
+            st.text_input("Ollama model", value=ai_config.model)
+            if ai_config.provider == "ollama" else ai_config.model
+        )
+        if st.button("Clear temporary AI cache", key="clear_ai_cache", use_container_width=True):
+            clear_ai_cache()
+            st.success("Temporary AI cache cleared.")
 
 uploaded_resume_a = st.file_uploader(
     "Upload Resume A",
